@@ -6,6 +6,8 @@ An IRC bot to watch a build server (only cctray.xml format for now) and report a
 
 At the moment this is in active development, and running it probably requires hacking code. sorry.
 
+Also there's some horrible stuff in here. Avoid.  Mostly just on github so I can share it with work pc.
+
 ## License
 
         DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE
