@@ -6,44 +6,48 @@
             [buildbot.cctray :as cctray])
   (:gen-class))
 
-(defn raw-log [_ & args]
-  (pprint args))
-
 (def botname "buildbot")
 
-(defn admin? "is a user an admin - possibly checking command for some auth info"
-  [user _command] (= user "korny"))
-
-(defn command? [text]
-  (re-matches #"@.*" text))
-
-(def quitted (promise))
+(comment ;"irc" implied structure is
+  {:connection nil ; - irclj thing
+   :quit-reason (promise) ;- to be delivered on quitting (yes, this will be done better some day)
+   :past-statuses (atom []) ; vector of project statuses so far - should be capped at some restart-agent
+   })
 
 (defn quit! [irc reason]
-  (irclj/quit irc)
-  (deliver quitted reason))
+  (irclj/quit (:connection irc))
+  (deliver (:quit-reason irc) reason))
 
 (defn do-command [irc text nick]
   (case text
-    "@quit" (quit! irc (str "request from " nick))
-    (irclj/message irc nick (str "unknown command: " text))
-    )
-  )
+    "quit" (quit! irc (str "request from " nick))
+    "help" (irclj/message (:connection irc) nick (str
+                                                   "send message via 'buildbot:cmd' or msg buildbot with 'cmd'"
+                                                   "commands: 'help' and 'quit' only!"))
+    (irclj/message (:connection irc) nick (str "unknown command: " text " - try help"))))
 
-(defn send-help [irc nick]
-  (irclj/message irc nick "only the @quit command works at the moment - and you need to be an admin"))
+(defn send-help [connection nick]
+  (irclj/message connection nick "try \"/msg buildbot help\" or \"buildbot: help\" from a channel the bot is in"))
 
-(defn privmsg [irc {:keys [nick text target] :as data}]
-  (if (= botname target)
-    (if (and (command? text) (admin? nick text))
-      (do-command irc text nick)
-      (send-help irc nick))
-    ; no handling of any general messages right now - only command messages to the bot
-    ))
+(defn parse-command [text target]
+  (println "command to target " target)
+  (when-let [match (if (= botname target)
+                     (re-matches #"(.*)" text)
+                     (re-matches #"buildbot:(.*)" text))]
+    (clojure.string/trim (second match))))
 
-(def callbacks {:privmsg privmsg
-                ; :raw-log raw-log
-                })
+(defn privmsg
+  "send a private message - takes a promise of an irc connection as real one may not yet exist"
+  [irc-promise raw-irc {:keys [nick text target] :as data}]
+  (when (realized? irc-promise)
+    (if-let [command (parse-command text target)]
+      (do
+        (println "running command:" command)
+        (do-command @irc-promise command nick))
+      (if (= botname target)
+        (send-help (:connection @irc-promise) nick)))))
+
+(defn callbacks [irc-promise] {:privmsg (partial privmsg irc-promise)})
 
 (def host (or (System/getenv "BUILDBOT_HOST")
               "localhost"))
@@ -71,56 +75,55 @@
       (println "Caught exception " e)
       nil)))
 
-(defn connection [] (irclj/connect
-                      host
-                      port
-                      botname
-                      :username "buildbot"
-                      :realname "buildbot"
-                      :callbacks callbacks))
+(defn connection [irc-promise]
+  (irclj/connect
+    host
+    port
+    botname
+    :username "buildbot"
+    :realname "buildbot"
+    :callbacks (callbacks irc-promise)))
 
-(def irc (atom nil))
-
-(defn connect []
-  (reset! irc (connection))
-  (irclj/join @irc channel )) ; test against hircd, which annoyingly can't handle hyphens in channels
-
-(def last-status (atom nil))
-
-(defn report [irc  events]
-;  (clojure.pprint/pprint events)
+(defn report [irc events]
   (doseq [event events]
     (do
       (println "reporting: " event)
     (irclj/message irc channel (:message event)))))
 
-(defn on-tick []
-  (try
-  (if-let [status (get-project-statuses)]
-    (do
-      (if @last-status
-        (do
-          (report @irc (cctray/status->events @last-status status))
-          (reset! last-status status)  ; bad bad bad
-          )
-        (reset! last-status status))))
-  (catch Exception e
-    (do
-      (println "caught exception:" e)
-      (clojure.stacktrace/print-stack-trace e)
-      ))))
+(defn add-status [irc status]
+  (swap! (:past-statuses irc) conj status))
 
-(def schedule (atom nil))
+(defn last-status [irc]
+  (last @(:past-statuses irc)))
+
+(defn on-tick [irc]
+  (try
+    (when-let [status (get-project-statuses)]
+      (do
+        (when-let [last (last-status irc)]
+          (report (:connection irc) (cctray/status->events last status)))
+        (add-status irc status)))
+    (catch Exception e
+      (do
+        (println "caught exception:" e)
+        (clojure.stacktrace/print-stack-trace e)))))
+
+(defn connect []
+  ; circular - callbacks needed in connection want access to our "irc" that we haven't built yet!
+  (let [self (promise)
+        conn (connection self)
+        _ (irclj/join conn channel)
+        result    {:connection conn
+                   :quit-reason (promise)
+                   :past-statuses (atom [])}
+        _ (deliver self result)]
+    result))
 
 (defn -main [& args]
-  (let [pool (at-at/mk-pool)]
-    (connect)
-    (reset! schedule (at-at/every 5000 on-tick pool))
+  (let [pool (at-at/mk-pool)
+        irc (connect)
+        schedule (at-at/every 5000 #(on-tick irc) pool)]
     (prn "waiting to die.")
-    (println @quitted)
+    (println @(:quit-reason irc)) ; only get here when promise is delivered
     (prn "done!")
-    (at-at/stop @schedule)
-    ))
-
-(comment
-  (quit! @irc "manually from repl"))
+    (at-at/stop schedule)))

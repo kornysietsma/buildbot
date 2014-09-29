@@ -6,8 +6,8 @@
                  [irclj "0.5.0-alpha4"]
                  [midje "1.6.3"]
                  [overtone/at-at "1.2.0"]
-                 [org.clojure/data.xml "0.0.7"]
+                 [org.clojure/data.xml "0.0.8"]
                  [org.clojure/data.zip "0.1.1"]
-                 [org.clojure/core.match "0.2.1"]
-                 [clj-http "0.9.2"]]
+                 [org.clojure/core.match "0.2.2"]
+                 [clj-http "1.0.0"]]
   :main buildbot.core)
