@@ -1,7 +1,8 @@
-- send responses to help/quit publicly
-- Ping/Pong for crap networks
+- send responses to help/quit publicly instead of DM
+- add config mechanism, put timing values in config
 - switch to core.async to handle threads and states and messages
 - smarts around Go-style pipeline names - build a tree!
+- Ping/Pong for crap networks - not in irclj alpha! build our own?
 - quit should actually kill the process!  (might wait until we go core.async)
 
 more commands:

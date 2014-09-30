@@ -82,7 +82,10 @@
     botname
     :username "buildbot"
     :realname "buildbot"
-    :callbacks (callbacks irc-promise)))
+    :callbacks (callbacks irc-promise)
+    :auto-reconnect-delay-mins 1 ; reconnect delay after disconnect
+    :timeout-mins 20 ; socket timeout - length of time to keep socket open when nothing happens
+    ))
 
 (defn report [irc events]
   (doseq [event events]
