@@ -1,3 +1,5 @@
+**ARCHIVED** cause it's old and never really finished.
+
 # buildbot
 
 An IRC bot to watch a build server (only cctray.xml format for now) and report activity to IRC channels/people
